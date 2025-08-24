@@ -1,233 +1,341 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/services/authapi.dart';
-import 'package:frontend/models/user_model.dart';
 import 'package:frontend/exceptions/auth_exception.dart';
-import 'package:logger/logger.dart'; // Added for debugging
-import 'sign_in_page.dart'; // Link to SignInPage
+import 'package:logger/logger.dart';
+import 'sign_in_page.dart';
 
 class SignUpPage extends StatefulWidget {
+  const SignUpPage({super.key});           // ✅ const constructor
   @override
-  _SignUpPageState createState() => _SignUpPageState();
+  State<SignUpPage> createState() => _SignUpPageState();
 }
 
 class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // Controllers (รวม first/last ให้เป็น name ตอนส่ง register)
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+
+  // ช่องที่ลอจิกเดิมต้องใช้
   final _phoneController = TextEditingController();
   final _plateController = TextEditingController();
-  String? _selectedRole;
+  String? _selectedRole; // 'นิสิต' | 'ผู้รักษาความปลอดภัย'
+
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   final AuthService _authService = AuthService();
-  final Logger _logger = Logger(); 
+  final Logger _logger = Logger();
 
   @override
   void dispose() {
     _logger.d('Disposing SignUpPage controllers');
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _phoneController.dispose();
     _plateController.dispose();
     super.dispose();
   }
 
   Future<void> _signUp() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+    if (!_formKey.currentState!.validate()) {
+      _logger.w('Form validation failed');
+      return;
+    }
 
-      // Log input data for debugging
-      _logger.d('SignUp attempt with data: '
-          'email: ${_emailController.text.trim()}, '
-          'role: $_selectedRole, '
-          'phone: ${_phoneController.text.trim()}, '
-          'plate: ${_selectedRole == 'นิสิต' ? _plateController.text.trim() : 'N/A'}');
+    setState(() => _isLoading = true);
 
-      try {
-        final response = await _authService.register(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-          name: _emailController.text.trim(), // Using email as name; adjust as needed
-          phone: _phoneController.text.trim(),
-          role: _selectedRole == 'นิสิต' ? 'student' : 'security',
-          plate: _selectedRole == 'นิสิต' ? _plateController.text.trim() : null,
-        );
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final name =
+        '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'.trim();
+    final phone = _phoneController.text.trim();
+    final role =
+        _selectedRole == 'นิสิต' ? 'student' : 'security';
+    final plate = _selectedRole == 'นิสิต'
+        ? _plateController.text.trim()
+        : null;
 
-        // Log success response
-        _logger.i('Registration successful: UID = ${response.uid}');
+    _logger.d('SignUp attempt with data: email=$email, role=$_selectedRole, phone=$phone, plate=${plate ?? "N/A"}');
 
-        // Navigate to SignInPage on success
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => SignInPage()),
-        );
-      } on AuthException catch (e) {
-        _logger.e('Registration failed: ${e.message}, Code: ${e.code}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('สมัครสมาชิกไม่สำเร็จ: ${e.message}')),
-        );
-      } catch (e) {
-        _logger.e('Unexpected error during registration: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
-        );
-      } finally {
-        setState(() {
-          _isLoading = false;
-        });
+    try {
+      final response = await _authService.register(
+        email: email,
+        password: password,
+        name: name.isEmpty ? email : name, // กันกรณีผู้ใช้ไม่ได้กรอกชื่อ
+        phone: phone,
+        role: role,
+        plate: plate,
+      );
+
+      _logger.i('Registration successful: UID = ${response.uid}');
+
+      if (!mounted) return;
+      // กลับไปหน้าเข้าสู่ระบบตาม UI ที่ให้มา
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const SignInPage()),
+      );
+      // หรือถ้าตั้ง route ไว้แล้ว:
+      // Navigator.pushReplacementNamed(context, '/login');
+    } on AuthException catch (e) {
+      _logger.e('Registration failed: ${e.message}, Code: ${e.code}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('สมัครสมาชิกไม่สำเร็จ: ${e.message}')),
+      );
+    } catch (e) {
+      _logger.e('Unexpected error during registration: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
         _logger.d('SignUp process completed');
       }
-    } else {
-      _logger.w('Form validation failed');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'กลับไปหน้าเข้าสู่ระบบ',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            // ตาม UI ตัวอย่างใช้ pushReplacementNamed ไป /login
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const SignInPage()),
+            );
+            // หรือถ้าตั้ง route:
+            // Navigator.pushReplacementNamed(context, '/login');
+          },
+        ),
+        title: const Text('สมัครสมาชิก'),
+        centerTitle: true,
+      ),
       body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Logo
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundImage: AssetImage('assets/logo.png'),
-                  ),
-                  SizedBox(height: 20),
-
-                  // App name
-                  Text(
-                    'UP PARKING',
-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 20),
-
-                  // Role dropdown
-                  DropdownButtonFormField<String>(
-                    decoration: InputDecoration(
-                      labelText: 'คุณคือ ?',
-                      border: OutlineInputBorder(),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Logo (เหมือนหน้า Login UI ใหม่)
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black, width: 2),
+                      ),
+                      child: const Icon(Icons.two_wheeler,
+                          size: 60, color: Colors.black),
                     ),
-                    items: ['นิสิต', 'ผู้รักษาความปลอดภัย']
-                        .map(
-                          (label) => DropdownMenuItem(
-                            value: label,
-                            child: Text(label),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'UP Parking',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // === ฟิลด์ตาม UI ใหม่ ===
+                    // ชื่อ
+                    TextFormField(
+                      controller: _firstNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'ชื่อ',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'กรุณากรอกชื่อ' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // นามสกุล
+                    TextFormField(
+                      controller: _lastNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'นามสกุล',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'กรุณากรอกนามสกุล' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // อีเมล
+                    TextFormField(
+                      controller: _emailController,
+                      decoration: const InputDecoration(
+                        labelText: 'อีเมล',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกอีเมล';
+                        }
+                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                            .hasMatch(value)) {
+                          return 'กรุณากรอกอีเมลที่ถูกต้อง';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // รหัสผ่าน
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'รหัสผ่าน',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
                           ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedRole = value;
-                        _logger.d('Selected role: $value');
-                      });
-                    },
-                    validator: (value) =>
-                        value == null ? 'กรุณาเลือกบทบาท' : null,
-                  ),
-                  SizedBox(height: 10),
-
-                  // Email field
-                  TextFormField(
-                    controller: _emailController,
-                    decoration: InputDecoration(
-                      labelText: 'อีเมล',
-                      border: OutlineInputBorder(),
+                          onPressed: () =>
+                              setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกรหัสผ่าน';
+                        }
+                        if (value.length < 6) {
+                          return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+                        }
+                        return null;
+                      },
                     ),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'กรุณากรอกอีเมล';
-                      }
-                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                          .hasMatch(value)) {
-                        return 'กรุณากรอกอีเมลที่ถูกต้อง';
-                      }
-                      return null;
-                    },
-                  ),
-                  SizedBox(height: 10),
+                    const SizedBox(height: 16),
 
-                  // Password field
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: 'รหัสผ่าน',
-                      border: OutlineInputBorder(),
+                    // ยืนยันรหัสผ่าน
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      obscureText: _obscureConfirm,
+                      decoration: InputDecoration(
+                        labelText: 'ยืนยันรหัสผ่าน',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscureConfirm
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscureConfirm = !_obscureConfirm),
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณายืนยันรหัสผ่าน';
+                        }
+                        if (value != _passwordController.text) {
+                          return 'รหัสผ่านไม่ตรงกัน';
+                        }
+                        return null;
+                      },
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'กรุณากรอกรหัสผ่าน';
-                      }
-                      if (value.length < 6) {
-                        return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-                      }
-                      return null;
-                    },
-                  ),
-                  SizedBox(height: 10),
+                    const SizedBox(height: 16),
 
-                  // Phone field
-                  TextFormField(
-                    controller: _phoneController,
-                    decoration: InputDecoration(
-                      labelText: 'เบอร์โทรศัพท์',
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.phone,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'กรุณากรอกเบอร์โทรศัพท์';
-                      }
-                      if (!RegExp(r'^\d{10}$').hasMatch(value)) {
-                        return 'กรุณากรอกเบอร์โทรศัพท์ 10 หลัก';
-                      }
-                      return null;
-                    },
-                  ),
-                  SizedBox(height: 10),
-
-                  // License plate field (only for students)
-                  if (_selectedRole == 'นิสิต')
+                    // หมายเลขทะเบียนรถ (จาก UI ใหม่) — จะทำงานร่วมกับเงื่อนไขนิสิตด้านล่าง
+                    // (เราจะโชว์ช่องนี้เสมอเพราะ UI ใหม่ต้องการ แต่จะตรวจ required เฉพาะตอนเลือก "นิสิต")
                     TextFormField(
                       controller: _plateController,
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'หมายเลขทะเบียนรถ',
                         border: OutlineInputBorder(),
                       ),
                       validator: (value) {
                         if (_selectedRole == 'นิสิต' &&
-                            (value == null || value.isEmpty)) {
-                          return 'กรุณากรอกหมายเลขทะเบียนรถ';
+                            (value == null || value.trim().isEmpty)) {
+                          return 'กรุณากรอกหมายเลขทะเบียนรถสำหรับนิสิต';
                         }
                         return null;
                       },
                     ),
-                  if (_selectedRole == 'นิสิต') SizedBox(height: 10),
+                    const SizedBox(height: 24),
 
-                  // Sign up button
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : _signUp,
-                    style: ElevatedButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: 15),
-                      minimumSize: Size(double.infinity, 50),
+                    // === ฟิลด์เพิ่มที่ลอจิกเดิมต้องใช้ (แทรกแบบกลมกลืนกับ UI) ===
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'คุณคือ ?',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'นิสิต', child: Text('นิสิต')),
+                        DropdownMenuItem(
+                          value: 'ผู้รักษาความปลอดภัย',
+                          child: Text('ผู้รักษาความปลอดภัย'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedRole = value;
+                          _logger.d('Selected role: $value');
+                        });
+                      },
+                      validator: (value) =>
+                          value == null ? 'กรุณาเลือกบทบาท' : null,
                     ),
-                    child: _isLoading
-                        ? CircularProgressIndicator(color: Colors.white)
-                        : Text('Sign up'),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _phoneController,
+                      decoration: const InputDecoration(
+                        labelText: 'เบอร์โทรศัพท์',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'กรุณากรอกเบอร์โทรศัพท์';
+                        }
+                        if (!RegExp(r'^\d{10}$').hasMatch(value)) {
+                          return 'กรุณากรอกเบอร์โทรศัพท์ 10 หลัก';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // ปุ่มสมัครสมาชิก
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _signUp,
+                        child: _isLoading
+                            ? const CircularProgressIndicator(color: Colors.white)
+                            : const Text('สมัครสมาชิก'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -1,87 +1,51 @@
 import 'package:flutter/material.dart';
- 
-class SettingsPage extends StatelessWidget {
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key}); // ✅ const constructor
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  // ตัวแปรสำหรับจัดการสถานะการแจ้งเตือน
+  String _notificationSetting = 'เปิด'; // ค่าเริ่มต้น
+  static const List<String> _options = ['เปิด', 'ปิด'];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // AppBar
       appBar: AppBar(
-        title: Text('การตั้งค่า'),
-        backgroundColor: Colors.purple,
-      ),
- 
-      // เนื้อหา
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
- 
-            // ปุ่มแก้ไขบัญชีส่วนตัว
-            ElevatedButton(
-              onPressed: () {
-                // TODO: ฟังก์ชันการแก้ไขบัญชีผู้ใช้
-              },
-              style: ElevatedButton.styleFrom(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.edit, color: Colors.white),
-                  SizedBox(width: 16),
-                  Text(
-                    'แก้ไขบัญชีส่วนตัว',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
- 
-            SizedBox(height: 16),
- 
-            // ปุ่มตั้งค่าการแจ้งเตือน พร้อม Dropdown
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.purple,
-                borderRadius: BorderRadius.circular(8.0),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.notifications, color: Colors.white),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      'ตั้งค่าการแจ้งเตือน',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  DropdownButton<String>(
-                    value: 'เปิด',
-                    dropdownColor: Colors.white,
-                    iconEnabledColor: Colors.white,
-                    underline: SizedBox(), // เอาเส้นใต้ของ Dropdown ออก
-                    items: <String>['เปิด', 'ปิด']
-                        .map((String value) => DropdownMenuItem<String>(
-                              value: value,
-                              child: Text(value),
-                            ))
-                        .toList(),
-                    onChanged: (String? newValue) {
-                      // TODO: ทำการเปลี่ยนแปลงสถานะที่เลือก
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
+        title: const Text('การตั้งค่า'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
         ),
+      ),
+      body: ListView(
+        children: [
+          // เปลี่ยนจาก "เปิดปิดการแจ้งเตือน" เป็น "การตั้งค่าการแจ้งเตือน"
+          ListTile(
+            title: const Text('การตั้งค่าการแจ้งเตือน'),
+            trailing: DropdownButton<String>(
+              value: _notificationSetting,
+              items: _options
+                  .map(
+                    (v) => DropdownMenuItem<String>(
+                      value: v,
+                      child: Text(v),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _notificationSetting = value);
+                // TODO: เพิ่มลอจิกเปิด/ปิดการแจ้งเตือนจริงที่นี่ (เช่น SharedPreferences / Firebase Messaging)
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 }
- 
- 

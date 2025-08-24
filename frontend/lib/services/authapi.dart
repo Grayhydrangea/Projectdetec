@@ -1,163 +1,107 @@
-import 'dart:convert';
-import 'dart:io';
-import 'package:http/http.dart' as http;
+// lib/services/authapi.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:frontend/models/auth_response.dart';
-import 'package:frontend/models/user_model.dart';
 import 'package:frontend/exceptions/auth_exception.dart';
 
 class AuthService {
-  // ใช้ 10.0.2.2 สำหรับ Android Emulator ที่จะชี้ไปยัง localhost ของเครื่องเรา
-  static const String _baseUrl = 'http://10.0.2.2:3000';
-  static const _defaultTimeout = Duration(seconds: 20);
+  final _auth = FirebaseAuth.instance;
+  final _db = FirebaseFirestore.instance;
 
-  Map<String, String> get _jsonHeaders => {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      };
-
-  // Helper: decode JSON ปลอดภัย
-  dynamic _safeJsonDecode(String body) {
-    try {
-      return jsonDecode(body);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // Helper: ดึงข้อความ error จาก body (หากเป็น JSON)
-  String _extractError(dynamic decoded, int status) {
-    if (decoded is Map) {
-      final msg = decoded['error'] ?? decoded['message'] ?? decoded['msg'];
-      if (msg is String && msg.trim().isNotEmpty) return msg;
-    }
-    return 'Request failed (HTTP $status)';
-  }
-
-  // Register user
+  /// REGISTER: สร้างบัญชีด้วย FirebaseAuth + สร้างเอกสาร users/{uid}
   Future<AuthResponse> register({
     required String email,
     required String password,
     required String name,
     required String phone,
-    required String role,
+    required String role, // 'student' | 'guard' | 'admin' | 'security'
     String? plate,
   }) async {
-    final uri = Uri.parse('$_baseUrl/api/auth/register');
-
     try {
-      final resp = await http
-          .post(
-            uri,
-            headers: _jsonHeaders,
-            body: jsonEncode({
-              'email': email,
-              'password': password,
-              'name': name,
-              'phone': phone,
-              'role': role,
-              if (plate != null) 'plate': plate,
-            }),
-          )
-          .timeout(_defaultTimeout);
-          
-          print('[REGISTER] status=${resp.statusCode} body=${resp.body}'); 
+      // 1) สร้างผู้ใช้บน FirebaseAuth
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
 
-      final decoded = _safeJsonDecode(resp.body);
+      final uid = cred.user!.uid;
 
-      if (resp.statusCode == 201 || resp.statusCode == 200) {
-        // รองรับรูป JSON หลายแบบจาก backend
-        // ตัวอย่าง:
-        // { "uid": "...", "idToken": "..." }
-        // { "user": {"uid": "..."}, "token": "..." }
-        // { "data": {"uid": "...", "idToken": "..."} }
-        Map<String, dynamic>? payload;
+      // 2) อัปเดต displayName (optional)
+      await cred.user!.updateDisplayName(name.trim());
 
-        if (decoded is Map<String, dynamic>) {
-          if (decoded.containsKey('uid') || decoded.containsKey('idToken')) {
-            payload = decoded;
-          } else if (decoded['user'] is Map) {
-            payload = {
-              'uid': decoded['user']['uid'],
-              'idToken': decoded['token'] ?? decoded['idToken'],
-            };
-          } else if (decoded['data'] is Map) {
-            payload = Map<String, dynamic>.from(decoded['data']);
-          }
-        }
+      // 3) สร้างเอกสาร users/{uid} ใน Firestore (ถ้ายังไม่มี)
+      await _db.collection('users').doc(uid).set({
+        'uid': uid,
+        'email': email.trim(),
+        'name': name.trim(),
+        'phone': phone.trim(),
+        'role': role,                 // ใช้ประกอบใน UI เท่านั้น (สิทธิ์จริงดูจาก Custom Claims)
+        'plate': plate ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-        if (payload == null) {
-          throw RegisterException('Unexpected response shape from server.');
-        }
+      // 4) ดึง idToken (ถ้าจะส่งต่อ/ดีบัก)
+      final idToken = await cred.user!.getIdToken();
 
-        return AuthResponse.fromJson(payload);
-      } else {
-        throw RegisterException(_extractError(decoded, resp.statusCode));
+      return AuthResponse(uid: uid, idToken: idToken);
+    } on FirebaseAuthException catch (e) {
+      // map เป็นข้อยกเว้นเดิมของคุณ
+      switch (e.code) {
+        case 'email-already-in-use':
+          throw RegisterException('อีเมลนี้ถูกใช้ไปแล้ว', code: e.code);
+        case 'invalid-email':
+          throw RegisterException('อีเมลไม่ถูกต้อง', code: e.code);
+        case 'weak-password':
+          throw RegisterException('รหัสผ่านอ่อนเกินไป', code: e.code);
+        default:
+          throw RegisterException('สมัครสมาชิกไม่สำเร็จ: ${e.message}', code: e.code);
       }
-    } on SocketException {
-      throw NetworkException('No internet connection.');
-    } on HttpException catch (e) {
-      throw RegisterException('HTTP error: ${e.message}');
-    } on FormatException {
-      throw RegisterException('Bad response format.');
-    } on RegisterException {
-      rethrow;
     } catch (e) {
       throw RegisterException('Registration error: $e');
     }
   }
 
-  // Login user
+  /// LOGIN: เข้าสู่ระบบด้วย FirebaseAuth
   Future<AuthResponse> login({
     required String email,
     required String password,
   }) async {
-    final uri = Uri.parse('$_baseUrl/api/auth/login');
-
     try {
-      final resp = await http
-          .post(
-            uri,
-            headers: _jsonHeaders,
-            body: jsonEncode({'email': email, 'password': password}),
-          )
-          .timeout(_defaultTimeout);
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
 
-      final decoded = _safeJsonDecode(resp.body);
+      // สำคัญ: refresh token เพื่อดึง Custom Claims ล่าสุด
+      await cred.user!.getIdToken(true);
 
-      if (resp.statusCode == 200) {
-        Map<String, dynamic>? payload;
+      final uid = cred.user!.uid;
+      final idToken = await cred.user!.getIdToken();
 
-        if (decoded is Map<String, dynamic>) {
-          if (decoded.containsKey('uid') || decoded.containsKey('idToken')) {
-            payload = decoded;
-          } else if (decoded['user'] is Map) {
-            payload = {
-              'uid': decoded['user']['uid'],
-              'idToken': decoded['token'] ?? decoded['idToken'],
-            };
-          } else if (decoded['data'] is Map) {
-            payload = Map<String, dynamic>.from(decoded['data']);
-          }
-        }
-
-        if (payload == null) {
-          throw LoginException('Unexpected response shape from server.');
-        }
-
-        return AuthResponse.fromJson(payload);
-      } else {
-        throw LoginException(_extractError(decoded, resp.statusCode));
+      return AuthResponse(uid: uid, idToken: idToken);
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'user-not-found':
+        case 'wrong-password':
+          throw LoginException('Invalid email or password', code: e.code);
+        case 'invalid-email':
+          throw LoginException('อีเมลไม่ถูกต้อง', code: e.code);
+        case 'user-disabled':
+          throw LoginException('บัญชีนี้ถูกระงับการใช้งาน', code: e.code);
+        default:
+          throw LoginException('เข้าสู่ระบบไม่สำเร็จ: ${e.message}', code: e.code);
       }
-    } on SocketException {
-      throw NetworkException('No internet connection.');
-    } on HttpException catch (e) {
-      throw LoginException('HTTP error: ${e.message}');
-    } on FormatException {
-      throw LoginException('Bad response format.');
-    } on LoginException {
-      rethrow;
     } catch (e) {
       throw LoginException('Login error: $e');
     }
   }
+
+  /// OPTIONAL: ออกจากระบบ
+  Future<void> logout() async {
+    await _auth.signOut();
+  }
+
+  /// OPTIONAL: ดึง uid ปัจจุบัน (ถ้าล็อกอินอยู่)
+  String? currentUid() => _auth.currentUser?.uid;
 }

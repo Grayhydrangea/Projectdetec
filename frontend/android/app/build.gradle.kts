@@ -1,14 +1,22 @@
 plugins {
     id("com.android.application")
-    id("kotlin-android")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
+    // ใช้ id ทางการสำหรับ Kotlin Android ใน KTS
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.frontend"
+
+    // ค่าพวกนี้ Flutter จะป้อนมาให้ แต่เราสามารถ override ได้ตามต้องการ
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+
+    // NDK: จาก error ก่อนหน้า cloud_firestore / firebase_core ต้องการ 27.x
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -20,11 +28,11 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.frontend"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+
+        // ✅ แก้ประเด็นหลัก: บังคับอย่างน้อย 23 (หากค่า Flutter ต่ำกว่า)
+        minSdk = maxOf(23, flutter.minSdkVersion)
+
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -32,8 +40,7 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // ใช้ debug keystore ชั่วคราวเพื่อให้ `flutter run --release` ทำงานได้
             signingConfig = signingConfigs.getByName("debug")
         }
     }

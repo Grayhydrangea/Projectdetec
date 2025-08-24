@@ -1,21 +1,22 @@
+// lib/home.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'sign_in_page.dart';
 import 'package:frontend/models/user_model.dart';
+import 'sign_in_page.dart';
 
 class HomePage extends StatefulWidget {
   final String uid; // รับ UID มาจากหน้า Login
 
   const HomePage({super.key, required this.uid});
-  
-  
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
+  int _selectedIndex = 0; // Home = 0, Profile = 1
   UserModel? _user;
+  String _role = ''; // guard | security | admin | student | (อื่นๆ)
   bool _loading = true;
 
   @override
@@ -26,16 +27,16 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _fetchUser() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.uid)
-          .get();
+      final snap =
+          await FirebaseFirestore.instance.collection('users').doc(widget.uid).get();
 
       if (!mounted) return;
 
-      if (doc.exists && doc.data() != null) {
+      if (snap.exists && snap.data() != null) {
+        final data = snap.data()!;
         setState(() {
-          _user = UserModel.fromJson(doc.data()!);
+          _user = UserModel.fromJson(data);
+          _role = (data['role'] ?? '').toString().trim().toLowerCase();
           _loading = false;
         });
       } else {
@@ -53,171 +54,139 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _showUserInfoSheet() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) {
-        final u = _user;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          child: (u == null)
-              ? const Center(child: Text('ไม่มีข้อมูลผู้ใช้'))
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const ListTile(
-                      leading: CircleAvatar(child: Icon(Icons.person)),
-                      title: Text('ข้อมูลผู้ใช้',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('รายละเอียดบัญชีของคุณ'),
-                    ),
-                    const Divider(),
-                    _infoRow('UID', u.uid),
-                    _infoRow('ชื่อ', u.name),
-                    _infoRow('อีเมล', u.email),
-                    _infoRow('เบอร์โทร', u.phone),
-                    _infoRow('บทบาท', _roleTh(u.role)),
-                    if (u.role == 'student' && (u.plate ?? '').isNotEmpty)
-                      _infoRow('ทะเบียนรถ', u.plate!),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-        );
-      },
-    );
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
+    if (index == 1) {
+      Navigator.pushNamed(
+        context,
+        '/profile',
+        arguments: {'uid': widget.uid},
+      );
+    }
   }
 
   Future<void> _logout() async {
-    // ถ้าใช้ FirebaseAuth ให้ signOut ที่นี่ก่อน
     if (!mounted) return;
+    // ถ้าใช้งาน FirebaseAuth ให้ signOut() เพิ่มได้ที่นี่
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => SignInPage()),
+      MaterialPageRoute(builder: (_) => const SignInPage()),
       (route) => false,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final greeting = (_user?.name.trim().isNotEmpty ?? false)
-        ? 'สวัสดี, ${_user!.name}!'
-        : 'สวัสดี, ผู้ใช้!';
+    final greetingName =
+        (_user?.name.trim().isNotEmpty ?? false) ? _user!.name : 'Username';
+
+    // ผู้ที่เป็น staff = guard/security/admin
+    final bool isStaff =
+        _role == 'guard' || _role == 'security' || _role == 'admin';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('University of Phayao'),
-        backgroundColor: Colors.purple,
+        leading: IconButton(
+          icon: const Icon(Icons.logout),
+          onPressed: _logout,
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.school, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'University of Phayao',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        centerTitle: true,
         actions: [
           IconButton(
-            tooltip: 'ข้อมูลผู้ใช้',
-            icon: const Icon(Icons.person),
-            onPressed: _showUserInfoSheet,
-          ),
-          IconButton(
-            tooltip: 'ตั้งค่า',
             icon: const Icon(Icons.settings),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
           ),
           IconButton(
-            tooltip: 'ออกจากระบบ',
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
+            icon: const Icon(Icons.notifications),
+            onPressed: () => Navigator.pushNamed(context, '/notifications'),
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ทักทายด้วยชื่อจาก Firestore
                   Text(
-                    greeting,
-                    style: const TextStyle(
-                      fontSize: 24,
+                    'Hi, $greetingName!',
+                    style: TextStyle(
+                      fontSize: 32,
                       fontWeight: FontWeight.bold,
-                      color: Colors.purple,
+                      color: Colors.purple[800],
                     ),
                   ),
-                  const SizedBox(height: 30),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/attendance'),
-                    style: _btnStyle(),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.assignment, color: Colors.white),
-                        SizedBox(width: 16),
-                        Text('ดูบันทึกการเข้า - ออก ของนิสิต',
-                            style: TextStyle(color: Colors.white)),
-                      ],
+                  const SizedBox(height: 48),
+
+                  // การ์ด: ดูบันทึกการเข้า-ออก (นิสิต/ทุกบทบาทเห็นได้)
+                  Card(
+                    color: Colors.purple[50],
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: ListTile(
+                      leading: Icon(Icons.bar_chart, color: Colors.purple[700], size: 32),
+                      title: const Text(
+                        'ดูบันทึกการเข้า - ออก',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        '/parking_list',
+                        arguments: {'uid': widget.uid},
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('ฟังก์ชันนี้ยังไม่พร้อมใช้งาน')),
-                      );
-                    },
-                    style: _btnStyle(),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.access_time, color: Colors.white),
-                        SizedBox(width: 16),
-                        Text('ดูงานการเข้า - ออก',
-                            style: TextStyle(color: Colors.white)),
-                      ],
+
+                  const SizedBox(height: 24),
+
+                  // การ์ด: รายงาน (แสดงเฉพาะ guard/security/admin)
+                  if (isStaff)
+                    Card(
+                      color: Colors.purple[50],
+                      elevation: 6,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: ListTile(
+                        leading: Icon(Icons.report, color: Colors.purple[700], size: 32),
+                        title: const Text(
+                          'ดูรายงานการเข้า - ออก',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/balance',
+                          arguments: {'uid': widget.uid},
+                        ),
+                      ),
                     ),
-                  ),
                 ],
               ),
-      ),
-    );
-  }
-
-  ButtonStyle _btnStyle() => ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        backgroundColor: Colors.purple,
-      );
-
-  static String _roleTh(String role) {
-    switch (role) {
-      case 'student':
-        return 'นิสิต';
-      case 'guard':
-        return 'ผู้รักษาความปลอดภัย';
-      case 'admin':
-        return 'ผู้ดูแลระบบ';
-      default:
-        return role;
-    }
-  }
-
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 110,
-            child:
-                Text(label, style: const TextStyle(color: Colors.black54)),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-          ),
+      bottomNavigationBar: BottomNavigationBar(
+        items: const <BottomNavigationBarItem>[
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'หน้าแรก'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'โปรไฟล์'),
         ],
+        currentIndex: _selectedIndex,
+        selectedItemColor: Colors.purple[700],
+        unselectedItemColor: Colors.grey,
+        onTap: _onItemTapped,
       ),
     );
   }
