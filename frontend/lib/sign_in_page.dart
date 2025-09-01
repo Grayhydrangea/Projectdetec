@@ -1,10 +1,9 @@
 // lib/sign_in_page.dart
 import 'package:flutter/material.dart';
-import 'package:frontend/services/authapi.dart';
-import 'package:frontend/exceptions/auth_exception.dart';
 import 'package:logger/logger.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'services/authapi.dart';
 import 'sign_up_page.dart';
 
 class SignInPage extends StatefulWidget {
@@ -41,47 +40,41 @@ class _SignInPageState extends State<SignInPage> {
     final password = _passwordController.text;
 
     try {
-      // 1) login กับ backend
-      final resp = await _authApi.login(email: email, password: password);
-      _logger.i('Backend login OK -> uid=${resp.uid} customToken=${resp.customToken != null}');
+      // 1) ล็อกอิน Firebase ก่อน เพื่อให้ได้ uid
+      final cred = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
 
-      // 2) ลงชื่อเข้าใช้ Firebase (มี customToken ใช้อันนี้ก่อน)
-      UserCredential cred;
-      if ((resp.customToken ?? '').isNotEmpty) {
-        _logger.i('Use FirebaseAuth.signInWithCustomToken()');
-        cred = await FirebaseAuth.instance.signInWithCustomToken(resp.customToken!);
-      } else {
-        _logger.w('No customToken — fallback to signInWithEmailAndPassword');
-        cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+      final uid = cred.user?.uid ?? '';
+      if (uid.isEmpty) {
+        throw Exception('Firebase login succeeded but uid is empty');
       }
 
-      // 3) refresh token เพื่อให้ custom claims (role) มาครบ
+      // 2) (ออปชันนัล) เรียก backend ด้วย uid ตามสัญญาของ /api/auth/login ตอนนี้
+      try {
+        final r = await _authApi.loginWithUid(uid: uid);
+        _logger.i('Backend login ok -> uid=${r.uid}, customToken=${r.customToken != null}');
+        // ถ้า backend คืน customToken มาและอยากใช้จริง ๆ:
+        // await FirebaseAuth.instance.signInWithCustomToken(r.customToken!);
+      } catch (e) {
+        // ถ้า backend ล้มเหลว ไม่ให้ผู้ใช้ติด — ใช้ session Firebase ที่ล็อกอินแล้วต่อไป
+        _logger.w('Backend loginWithUid failed: $e (continue with Firebase session)');
+      }
+
+      // 3) รีเฟรช IdToken เพื่อดึง custom claims (role) ล่าสุด
       await cred.user?.getIdToken(true);
-      final tok = await cred.user?.getIdTokenResult();
-      _logger.i('Signed in uid=${cred.user?.uid}, claims=${tok?.claims}');
+      final claims = await cred.user?.getIdTokenResult();
+      _logger.i('Signed in uid=${cred.user?.uid}, claims=${claims?.claims}');
 
       if (!mounted) return;
-
-      // 4) ไปหน้า Home (ใช้ uid จาก Firebase ถ้า response ไม่มี)
-      final uidToUse = (resp.uid.isNotEmpty) ? resp.uid : (cred.user?.uid ?? '');
       Navigator.pushNamedAndRemoveUntil(
         context,
         '/home',
         (route) => false,
-        arguments: {'uid': uidToUse},
+        arguments: {'uid': uid},
       );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       _logger.e('FirebaseAuth sign-in failed: ${e.code} ${e.message}');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('เข้าสู่ระบบ Firebase ล้มเหลว: ${e.message}')),
-      );
-    } on AuthException catch (e) {
-      if (!mounted) return;
-      _logger.e('Backend login failed: ${e.message}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('เข้าสู่ระบบไม่สำเร็จ: ${e.message}')),
       );
@@ -121,7 +114,11 @@ class _SignInPageState extends State<SignInPage> {
                     const SizedBox(height: 16),
                     const Text(
                       'UP Parking',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.purple),
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple,
+                      ),
                     ),
                     const SizedBox(height: 32),
 
@@ -174,7 +171,10 @@ class _SignInPageState extends State<SignInPage> {
 
                     TextButton(
                       onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const SignUpPage()));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const SignUpPage()),
+                        );
                       },
                       child: const Text('สมัครสมาชิก', style: TextStyle(color: Colors.black)),
                     ),

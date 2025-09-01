@@ -17,8 +17,8 @@ class _BalancePageState extends State<BalancePage> {
   String _selectedMonth = 'มกราคม';
   String _selectedYear = '2568';
 
-  // สถานที่ล็อกเป็น gate1
-  final String _fixedLocationId = 'gate1';
+  // --- เลือกสถานที่ ---
+  String _locSel = 'gate1'; // gate1 | gate2 | gate3
 
   // --- สถานะโหลด/แสดงผล ---
   int? _count;
@@ -28,18 +28,9 @@ class _BalancePageState extends State<BalancePage> {
 
   // แผนที่เดือนไทย -> เลขเดือน (คริสต์ศักราชใช้ปีพ.ศ.-543)
   static const Map<String, int> _thaiMonthToNum = {
-    'มกราคม': 1,
-    'กุมภาพันธ์': 2,
-    'มีนาคม': 3,
-    'เมษายน': 4,
-    'พฤษภาคม': 5,
-    'มิถุนายน': 6,
-    'กรกฎาคม': 7,
-    'สิงหาคม': 8,
-    'กันยายน': 9,
-    'ตุลาคม': 10,
-    'พฤศจิกายน': 11,
-    'ธันวาคม': 12,
+    'มกราคม': 1, 'กุมภาพันธ์': 2, 'มีนาคม': 3, 'เมษายน': 4,
+    'พฤษภาคม': 5, 'มิถุนายน': 6, 'กรกฎาคม': 7, 'สิงหาคม': 8,
+    'กันยายน': 9, 'ตุลาคม': 10, 'พฤศจิกายน': 11, 'ธันวาคม': 12,
   };
 
   String? get _effectiveUid {
@@ -83,6 +74,16 @@ class _BalancePageState extends State<BalancePage> {
     }
   }
 
+  // คืนรายการค่าที่เท่ากับสถานที่ที่เลือก (รองรับ gate1_side สำหรับประตู2)
+  List<String> _locationWhereIn(String v) {
+    final key = v.toLowerCase().trim();
+    if (key == 'gate2') return ['gate2', 'gate1_side'];
+    if (key == 'gate1') return ['gate1'];
+    if (key == 'gate3') return ['gate3'];
+    return [key];
+  }
+
+  /// โหลดรายงาน "เฉพาะสถานะเข้า" (status == 'entry')
   Future<void> _loadReport() async {
     final uid = _effectiveUid;
     if (uid == null) return;
@@ -90,24 +91,32 @@ class _BalancePageState extends State<BalancePage> {
     final (start, end) = _selectedRange();
     setState(() {
       _loading = true;
-      _count = null; // เคลียร์ก่อน
+      _count = null;
     });
 
     try {
-      // ใช้คอลเลกชัน attendance และฟิลด์ตามที่เก็บจริง
-      final snap = await FirebaseFirestore.instance
+      // สร้างคิวรีตามวัน + เฉพาะ entry
+      Query<Map<String, dynamic>> q = FirebaseFirestore.instance
           .collection('attendance')
-          .where('locationId', isEqualTo: _fixedLocationId)
+          .where('status', isEqualTo: 'entry')
           .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('time', isLessThan: Timestamp.fromDate(end))
-          .get();
+          .where('time', isLessThan: Timestamp.fromDate(end));
 
+      // กรองสถานที่ (ใช้ whereIn เพื่อครอบคลุม gate1_side กรณีเลือกประตู2)
+      final locIn = _locationWhereIn(_locSel);
+      if (locIn.length == 1) {
+        q = q.where('locationId', isEqualTo: locIn.first);
+      } else {
+        q = q.where('locationId', whereIn: locIn);
+      }
+
+      final snap = await q.get();
       if (!mounted) return;
       setState(() => _count = snap.size);
     } on FirebaseException catch (e) {
       if (!mounted) return;
       final msg = e.code == 'failed-precondition'
-          ? 'คิวรีนี้ต้องสร้าง Composite Index ใน Firestore Console (ดูลิงก์ใน log ครั้งแรก)'
+          ? 'คิวรีนี้ต้องสร้าง Composite Index ใน Firestore Console (คลิกลิงก์จาก error แรกได้)'
           : 'โหลดรายงานไม่สำเร็จ: ${e.message}';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
@@ -166,7 +175,8 @@ class _BalancePageState extends State<BalancePage> {
                     child: ListTile(
                       leading: const Icon(Icons.lock, color: Colors.red),
                       title: const Text('ไม่มีสิทธิ์เข้าถึง'),
-                      subtitle: const Text('รายงานนี้อนุญาตเฉพาะเจ้าหน้าที่ (ยาม/แอดมิน)'),
+                      subtitle:
+                          const Text('รายงานนี้อนุญาตเฉพาะเจ้าหน้าที่ (ยาม/แอดมิน)'),
                     ),
                   ),
                 )
@@ -176,7 +186,7 @@ class _BalancePageState extends State<BalancePage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // ตัวกรองวันที่ – ใช้ Wrap/Expanded กัน overflow
+                        // ตัวกรองวันที่
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final w = (constraints.maxWidth - 16) / 3;
@@ -195,8 +205,10 @@ class _BalancePageState extends State<BalancePage> {
                                       isDense: true,
                                     ),
                                     items: List.generate(31, (i) => (i + 1).toString())
-                                        .map((v) =>
-                                            DropdownMenuItem(value: v, child: Text(v)))
+                                        .map((v) => DropdownMenuItem(
+                                              value: v,
+                                              child: Text(v),
+                                            ))
                                         .toList(),
                                     onChanged: (v) =>
                                         setState(() => _selectedDay = v!),
@@ -233,8 +245,10 @@ class _BalancePageState extends State<BalancePage> {
                                       isDense: true,
                                     ),
                                     items: ['2568', '2567', '2566', '2565']
-                                        .map((y) =>
-                                            DropdownMenuItem(value: y, child: Text(y)))
+                                        .map((y) => DropdownMenuItem(
+                                              value: y,
+                                              child: Text(y),
+                                            ))
                                         .toList(),
                                     onChanged: (v) =>
                                         setState(() => _selectedYear = v!),
@@ -244,16 +258,26 @@ class _BalancePageState extends State<BalancePage> {
                             );
                           },
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
-                        // สถานที่ (ล็อกเป็น gate1)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            Icon(Icons.location_on, color: Colors.purple),
-                            SizedBox(width: 8),
-                            Text('สถานที่: gate1'),
-                          ],
+                        // ตัวกรองสถานที่
+                        SizedBox(
+                          width: 320,
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: _locSel,
+                            decoration: const InputDecoration(
+                              labelText: 'สถานที่',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'gate1', child: Text('ประตู1')),
+                              DropdownMenuItem(value: 'gate2', child: Text('ประตู2')),
+                              DropdownMenuItem(value: 'gate3', child: Text('ประตู3')),
+                            ],
+                            onChanged: (v) => setState(() => _locSel = v ?? 'gate1'),
+                          ),
                         ),
                         const SizedBox(height: 16),
 
@@ -300,7 +324,7 @@ class _BalancePageState extends State<BalancePage> {
                                 const Text('คัน', style: TextStyle(fontSize: 24)),
                                 const SizedBox(height: 16),
                                 Text('วันที่: $_selectedDay $_selectedMonth $_selectedYear'),
-                                const Text('สถานที่: gate1'),
+                                Text('สถานที่: ${_locSel.toLowerCase()}'),
                               ],
                             ),
                           ),

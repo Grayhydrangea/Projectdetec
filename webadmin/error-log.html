@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>บันทึกผิดปกติ</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    html,body{height:100%; background:#f8f9fa; margin:0}
+    .layout{display:flex; min-height:100vh}
+    .sidebar{
+      background:#6f42c1; color:#fff;
+      width:220px; flex:0 0 220px;
+      padding:20px; position:sticky; top:0; height:100vh; overflow:auto;
+    }
+    .sidebar a{color:#fff;text-decoration:none;display:block;margin:.45rem 0}
+    .content{flex:1; padding:20px; min-width:0}
+    .table thead th{white-space:nowrap}
+    .col-plate{max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .filter-row .form-select,.filter-row .form-control{height:38px}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <div class="sidebar">
+    <h4>เมนู</h4>
+    <a href="dashboard.html">แดชบอร์ด</a>
+    <a href="user-management.html">จัดการสมาชิก</a>
+    <a href="vehicle-management.html">จัดการรถ</a>
+    <a href="entry-exit-log.html">บันทึกเข้า-ออก</a>
+    <a href="statistics.html">สถิติ</a>
+    <a href="error-log.html">บันทึกผิดปกติ</a>
+    <a id="logout" href="#">ออกจากระบบ</a>
+  </div>
+
+  <div class="content">
+    <h3 class="mb-3">บันทึกผิดปกติ</h3>
+
+    <div class="row g-2 align-items-center filter-row mb-3">
+      <div class="col-md-3"><input id="datePick" type="date" class="form-control"/></div>
+      <div class="col-md-3">
+        <!-- ใช้ค่า gate1/gate2/gate3 -->
+        <select id="selLocation" class="form-select">
+          <option value="">ทุกสถานที่</option>
+          <option value="gate1">ประตู1</option>
+          <option value="gate2">ประตู2</option>
+          <option value="gate3">ประตู3</option>
+        </select>
+      </div>
+      <div class="col-md-2"><button id="btnLoad" class="btn btn-primary w-100">โหลดข้อมูล</button></div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead>
+          <tr>
+            <th>เวลา</th>
+            <th>ประเภท</th>
+            <th class="col-plate">เลขทะเบียน</th>
+            <th>สถานะ</th>
+            <th>สถานที่</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="5">กำลังโหลด...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey:"AIzaSyDtebmJ8TIw_fYk6c-wxYn747njdystYLY",
+  authDomain:"motodetec-entry-exit.firebaseapp.com",
+  projectId:"motodetec-entry-exit",
+  storageBucket:"motodetec-entry-exit.firebasestorage.app",
+  messagingSenderId:"196015620727",
+  appId:"1:196015620727:web:f2991268c91e41f2ee3c72",
+  measurementId:"G-XN3QFKMB4J"
+};
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+/* normalize location เหมือนหน้าเข้า-ออก */
+function normalizeLocation(x){
+  const v = (x||'').toString().trim().toLowerCase();
+  if (!v) return '';
+  if (v === 'gate1_side' || v === 'gate2' || v === '2' || v === 'ประตู2') return 'gate2';
+  if (v === 'gate1' || v === '1' || v === 'ประตู1') return 'gate1';
+  if (v === 'gate3' || v === '3' || v === 'ประตู3') return 'gate3';
+  return v;
+}
+
+const dateInput = document.getElementById('datePick');
+dateInput.valueAsDate = new Date();
+
+onAuthStateChanged(auth, async (u)=>{
+  if(!u){ location.href="login.html"; return; }
+  await load();
+});
+
+document.getElementById('logout').addEventListener('click', async (e)=>{
+  e.preventDefault(); await signOut(auth); location.href="login.html";
+});
+
+document.getElementById('btnLoad').addEventListener('click', load);
+
+function dayRange(){
+  const d = dateInput.valueAsDate || new Date();
+  d.setHours(0,0,0,0);
+  const end = new Date(d); end.setDate(end.getDate()+1);
+  return [d,end];
+}
+
+async function load(){
+  const [start,end] = dayRange();
+  const locSel = normalizeLocation(document.getElementById('selLocation').value);
+
+  const tb = document.getElementById('rows');
+  tb.innerHTML = `<tr><td colspan="5">กำลังโหลด...</td></tr>`;
+
+  try{
+    const qBase = query(
+      collection(db,'attendance'),
+      where('isRegistered','==',false),
+      where('time','>=', Timestamp.fromDate(start)),
+      where('time','<',  Timestamp.fromDate(end)),
+      orderBy('time','desc')
+    );
+
+    const snap = await getDocs(qBase);
+    const rows = [];
+    snap.forEach(doc=>{
+      const m = doc.data();
+      const locationId = normalizeLocation(m.locationId || m.location || '');
+      if(locSel && locationId !== locSel) return;
+
+      rows.push({
+        t: m.time?.toDate?.() || null,
+        plate: m.licensePlate || m.plateNormalized || '-',
+        status: (m.status || '-'),
+        location: locationId
+      });
+    });
+
+    tb.innerHTML = "";
+    if(rows.length === 0){
+      tb.innerHTML = `<tr><td colspan="5" class="text-muted">ไม่พบข้อมูลตามตัวกรอง</td></tr>`;
+      return;
+    }
+
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.t ? r.t.toLocaleString('th-TH') : '-'}</td>
+        <td><span class="badge bg-danger">ไม่ได้ลงทะเบียน</span></td>
+        <td class="col-plate" title="${r.plate}">${r.plate}</td>
+        <td class="text-capitalize">${r.status}</td>
+        <td>${r.location || '-'}</td>
+      `;
+      tb.appendChild(tr);
+    });
+
+  }catch(e){
+    console.error(e);
+    tb.innerHTML = `<tr><td colspan="5" class="text-danger">
+      ไม่สามารถโหลดข้อมูลได้ (ถ้าเจอข้อความ requires an index ให้ไปสร้าง Composite Index ใน Firestore Console)
+    </td></tr>`;
+  }
+}
+</script>
+</body>
+</html>

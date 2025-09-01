@@ -18,6 +18,10 @@ class _ParkingListPageState extends State<ParkingListPage> {
   String _selectedYearBuddhist = '2568';
   bool _filterByMonth = false;
 
+  // ===== ตัวกรองสถานที่ =====
+  // '' = ทุกประตู, 'gate1' | 'gate2' | 'gate3'
+  String _selectedLocation = '';
+
   // สวิตช์ staff: เปิดดูทั้งหมด (ไม่กรองเวลา)
   bool _noTimeFilterForStaff = false;
 
@@ -65,7 +69,6 @@ class _ParkingListPageState extends State<ParkingListPage> {
     super.dispose();
   }
 
-  /// ดึง role จาก Custom Claims บน IdToken
   Future<void> _initRoleFromClaims() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -114,7 +117,18 @@ class _ParkingListPageState extends State<ParkingListPage> {
     }
   }
 
-  /// คิวรีจาก attendance โดย "ล็อก locationId = gate1" เสมอ
+  /// แปลงค่าชื่อสถานที่ให้เป็นมาตรฐาน gate1|gate2|gate3 (รองรับ gate1_side => gate2)
+  String _normalizeLocation(dynamic x) {
+    final v = (x ?? '').toString().trim().toLowerCase();
+    if (v.isEmpty) return '';
+    if (v == 'gate1_side' || v == 'gate2' || v == '2' || v == 'ประตู2') return 'gate2';
+    if (v == 'gate1' || v == '1' || v == 'ประตู1') return 'gate1';
+    if (v == 'gate3' || v == '3' || v == 'ประตู3') return 'gate3';
+    return v; // คืนค่าเดิมถ้าไม่ตรง pattern
+  }
+
+  /// Query หลัก: ไม่ล็อก location สำหรับ student แล้ว
+  /// (ใช้ตัวกรองสถานที่ฝั่ง client เพื่อรองรับทั้ง field locationId/location)
   Query<Map<String, dynamic>>? _buildQuery() {
     final uid = _effectiveUid;
     if (uid == null) return null;
@@ -122,27 +136,20 @@ class _ParkingListPageState extends State<ParkingListPage> {
     final col = FirebaseFirestore.instance.collection('attendance');
 
     if (!_isStaff) {
-      // student: ต้องกรอง uid ของตัวเอง + เวลา + gate1
       final (start, end) = _selectedRange();
       return col
-          .where('locationId', isEqualTo: 'gate1')
           .where('uid', isEqualTo: uid)
           .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
           .where('time', isLessThan: Timestamp.fromDate(end))
           .orderBy('time', descending: true);
     }
 
-    // staff: ถ้า “ดูทั้งหมด” -> ไม่กรองเวลา แต่ยังล็อก gate1
     if (_noTimeFilterForStaff) {
-      return col
-          .where('locationId', isEqualTo: 'gate1')
-          .orderBy('time', descending: true)
-          .limit(200);
+      return col.orderBy('time', descending: true).limit(200);
     }
 
     final (start, end) = _selectedRange();
     return col
-        .where('locationId', isEqualTo: 'gate1')
         .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
         .where('time', isLessThan: Timestamp.fromDate(end))
         .orderBy('time', descending: true);
@@ -163,7 +170,7 @@ class _ParkingListPageState extends State<ParkingListPage> {
             onPressed: () async {
               setState(() => _loadingRole = true);
               await _initRoleFromClaims();
-              setState(() {}); // re-query
+              setState(() {});
             },
           ),
           IconButton(
@@ -194,12 +201,40 @@ class _ParkingListPageState extends State<ParkingListPage> {
                     color: Colors.purple.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text('role: $_role • สถานที่: gate1',
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
                 ),
               ),
 
             _buildDateFilters(),
+
+            // ===== ตัวกรองสถานที่ =====
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final items = const [
+                  DropdownMenuItem(value: '', child: Text('ทุกประตู')),
+                  DropdownMenuItem(value: 'gate1', child: Text('ประตู1')),
+                  DropdownMenuItem(value: 'gate2', child: Text('ประตู2')),
+                  DropdownMenuItem(value: 'gate3', child: Text('ประตู3')),
+                ];
+                final w = constraints.maxWidth > 420 ? 320.0 : constraints.maxWidth;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: SizedBox(
+                    width: w,
+                    child: DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      value: _selectedLocation,
+                      decoration: const InputDecoration(
+                        labelText: 'สถานที่',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: items,
+                      onChanged: (v) => setState(() => _selectedLocation = v ?? ''),
+                    ),
+                  ),
+                );
+              },
+            ),
 
             if (!_loadingRole && _isStaff) ...[
               Row(
@@ -262,15 +297,27 @@ class _ParkingListPageState extends State<ParkingListPage> {
                   }
 
                   final allDocs = snapshot.data?.docs ?? [];
-                  final docs = _isStaff && _plateQuery.isNotEmpty
-                      ? allDocs.where((d) {
-                          final m = d.data();
-                          final p = (m['plateNormalized'] ?? m['licensePlate'] ?? '')
-                              .toString()
-                              .toLowerCase();
-                          return p.contains(_plateQuery);
-                        }).toList()
-                      : allDocs;
+
+                  // กรองฝั่ง client: plate + location (รองรับทั้ง locationId/location และ gate1_side -> gate2)
+                  final docs = allDocs.where((d) {
+                    final m = d.data();
+
+                    // filter plate (เฉพาะ staff)
+                    if (_isStaff && _plateQuery.isNotEmpty) {
+                      final p = (m['plateNormalized'] ?? m['licensePlate'] ?? '')
+                          .toString()
+                          .toLowerCase();
+                      if (!p.contains(_plateQuery)) return false;
+                    }
+
+                    // filter location (ถ้าผู้ใช้เลือก)
+                    if (_selectedLocation.isNotEmpty) {
+                      final locDoc = _normalizeLocation(m['locationId'] ?? m['location']);
+                      final locSel = _normalizeLocation(_selectedLocation);
+                      if (locDoc != locSel) return false;
+                    }
+                    return true;
+                  }).toList();
 
                   if (docs.isEmpty) {
                     return Card(
@@ -279,7 +326,7 @@ class _ParkingListPageState extends State<ParkingListPage> {
                         title: Text(_filterByMonth
                             ? 'ไม่มีบันทึกในเดือนที่เลือก'
                             : 'ไม่มีบันทึกในวันที่เลือก'),
-                        subtitle: const Text('ลองเปลี่ยนวัน/เดือน/ปี แล้วลองใหม่'),
+                        subtitle: const Text('ลองเปลี่ยนวัน/เดือน/ปี หรือสถานที่ แล้วลองใหม่'),
                       ),
                     );
                   }
@@ -288,10 +335,12 @@ class _ParkingListPageState extends State<ParkingListPage> {
                     children: docs.map((d) {
                       final m = d.data();
                       final plate = (m['licensePlate'] ?? m['plateNormalized'] ?? '').toString();
-                      final loc = (m['locationId'] ?? m['location'] ?? '').toString();
+                      final locRaw = (m['locationId'] ?? m['location'] ?? '').toString();
+                      final loc = _normalizeLocation(locRaw);
                       final typeRaw = (m['status'] ?? m['type'] ?? '').toString();
                       final ts = m['time'];
                       final time = (ts is Timestamp) ? ts.toDate() : null;
+                      final isRegistered = m['isRegistered'] == true;
 
                       final typeTh = (typeRaw.toLowerCase() == 'in' || typeRaw == 'เข้า')
                           ? 'เข้า'
@@ -308,14 +357,33 @@ class _ParkingListPageState extends State<ParkingListPage> {
                           : '-';
 
                       return Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.two_wheeler, color: Colors.amber),
-                          title: Text(loc.isNotEmpty ? loc : 'ไม่ระบุสถานที่'),
-                          subtitle: Text(
-                            'เลขทะเบียน: ${plate.isNotEmpty ? plate : '-'}\n'
-                            'วัน: $dayLabel\n'
-                            'เวลา: $timeText\n'
-                            'สถานะ: $typeTh',
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ListTile(
+                                leading: const Icon(Icons.two_wheeler, color: Colors.amber),
+                                title: Text(loc.isNotEmpty ? loc : 'ไม่ระบุสถานที่'),
+                                subtitle: Text(
+                                  'เลขทะเบียน: ${plate.isNotEmpty ? plate : '-'}\n'
+                                  'วัน: $dayLabel\n'
+                                  'เวลา: $timeText\n'
+                                  'สถานะ: $typeTh',
+                                ),
+                              ),
+                              if (!isRegistered)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Chip(
+                                    label: const Text(
+                                      'ไม่ได้ลงทะเบียน',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       );
@@ -329,7 +397,7 @@ class _ParkingListPageState extends State<ParkingListPage> {
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'หน้าแรก'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'โปรไฟล์'),
+        BottomNavigationBarItem(icon: Icon(Icons.person), label: 'โปรไฟล์'),
         ],
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.purple,
@@ -338,8 +406,6 @@ class _ParkingListPageState extends State<ParkingListPage> {
       ),
     );
   }
-
-  // ---------- UI helpers ----------
 
   Widget _buildDateFilters() {
     return Column(

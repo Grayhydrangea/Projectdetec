@@ -10,7 +10,11 @@ const plateRoutes = require('./routes/plateRoutes');
 
 const userRoutes = require('./routes/userRoutes');
 
+const cameraRoutes = require('./routes/cameraRoutes');
+
 const app = express();
+
+
 
 app.use(cors());
 
@@ -21,6 +25,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/plate', plateRoutes);
 
 app.use('/api/user', userRoutes);
+
+app.use('/api', cameraRoutes);
 
 app.get('/test', (req, res) => {
  res.send('API is working');

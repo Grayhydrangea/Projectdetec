@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>สถิติ</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+<style>
+  body{background:#f8f9fa}
+  .d-flex{min-height:100vh}
+  .sidebar{
+    background:#6f42c1;color:#fff;
+    width:220px;flex:0 0 220px;
+    padding:20px;position:sticky;top:0;height:100vh;
+  }
+  .sidebar a{color:#fff;text-decoration:none;display:block;margin:.45rem 0}
+  .content{flex:1;min-width:0;padding:20px}
+  .summary .box{background:#f3effc;border-radius:10px;padding:12px}
+  .summary .num{font-size:24px;font-weight:700;color:#6f42c1}
+  .chart-wrap{height:360px;} /* สูงพอดีกับหน้าจอ */
+</style>
+</head>
+<body>
+<div class="d-flex">
+  <div class="sidebar">
+    <h4>เมนู</h4>
+    <a href="dashboard.html">แดชบอร์ด</a>
+    <a href="user-management.html">จัดการสมาชิก</a>
+    <a href="vehicle-management.html">จัดการรถ</a>
+    <a href="entry-exit-log.html">บันทึกเข้า-ออก</a>
+    <a href="statistics.html">สถิติ</a>
+    <a href="error-log.html">บันทึกผิดปกติ</a>
+    <a id="logout" href="#">ออกจากระบบ</a>
+  </div>
+
+  <div class="content">
+    <h3 class="mb-3">สถิติ</h3>
+
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input id="datePick" type="date" class="form-control"/></div>
+      <div class="col-md-3">
+        <select id="mode" class="form-select">
+          <option value="day">รายวัน</option>
+          <option value="week">รายสัปดาห์</option>
+          <option value="month">รายเดือน</option>
+        </select>
+      </div>
+      <div class="col-md-2"><button id="btnLoad" class="btn btn-primary w-100">โหลดสถิติ</button></div>
+    </div>
+
+    <div class="card p-3 mb-4 summary">
+      <div class="row g-3">
+        <div class="col-md-3"><div class="box">เข้า: <span id="cEntry" class="num">-</span></div></div>
+        <div class="col-md-3"><div class="box">ออก: <span id="cExit"  class="num">-</span></div></div>
+        <div class="col-md-3"><div class="box">รวม: <span id="cSum"   class="num">-</span></div></div>
+      </div>
+    </div>
+
+    <div class="card p-3">
+      <h5 class="mb-3">กราฟแสดงจำนวนรถจักรยานยนต์เข้า / รถจักรยานยนต์ออก / รถจักรยานยนต์ไม่ได้ลงทะเบียน (เข้า)</h5>
+      <div class="chart-wrap"><canvas id="barChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig={apiKey:"AIzaSyDtebmJ8TIw_fYk6c-wxYn747njdystYLY",authDomain:"motodetec-entry-exit.firebaseapp.com",projectId:"motodetec-entry-exit",storageBucket:"motodetec-entry-exit.firebasestorage.app",messagingSenderId:"196015620727",appId:"1:196015620727:web:f2991268c91e41f2ee3c72",measurementId:"G-XN3QFKMB4J"};
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app);
+const db=getFirestore(app);
+
+onAuthStateChanged(auth,(u)=>{ if(!u){location.href="login.html";return;} document.getElementById('datePick').valueAsDate=new Date(); });
+document.getElementById('logout').addEventListener('click', async e=>{e.preventDefault();await signOut(auth);location.href="login.html";});
+document.getElementById('btnLoad').addEventListener('click', loadStat);
+
+function pad(n){return n.toString().padStart(2,'0');}
+function fmtDate(d){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
+function fmtDayShort(d){const th=['จ.','อ.','พ.','พฤ.','ศ.','ส.','อา.'];return th[(d.getDay()+6)%7];}
+
+function getRange(mode){
+  const base=document.getElementById('datePick').valueAsDate||new Date();
+  const start=new Date(base); start.setHours(0,0,0,0);
+
+  if(mode==='day'){ const end=new Date(start); end.setDate(end.getDate()+1); return {start,end,labels:[fmtDate(start)],key:d=>fmtDate(d)}; }
+  if(mode==='week'){
+    const day=(start.getDay()+6)%7; start.setDate(start.getDate()-day);
+    const end=new Date(start); end.setDate(end.getDate()+7);
+    const labels=[]; for(let i=0;i<7;i++){const t=new Date(start); t.setDate(start.getDate()+i); labels.push(fmtDayShort(t));}
+    return {start,end,labels,key:d=>fmtDayShort(d)};
+  }
+  const mStart=new Date(start.getFullYear(),start.getMonth(),1);
+  const end=new Date(start.getFullYear(),start.getMonth()+1,1);
+  const days=Math.round((end-mStart)/86400000);
+  return {start:mStart,end,labels:Array.from({length:days},(_,i)=>`${i+1}`),key:d=>`${d.getDate()}`};
+}
+
+let chart;
+function renderChart(labels, entry, exit, unreg){
+  const ctx=document.getElementById('barChart');
+  if(chart) chart.destroy();
+  chart=new Chart(ctx,{type:'bar',data:{labels,datasets:[
+    {label:'เข้า',data:entry},
+    {label:'ออก',data:exit},
+    {label:'ไม่ได้ลงทะเบียน(เข้า)',data:unreg}
+  ]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,precision:0}}}});
+}
+
+async function loadStat(){
+  const mode=document.getElementById('mode').value;
+  const {start,end,labels,key}=getRange(mode);
+
+  const q=query(collection(db,'attendance'),
+    where('time','>=',Timestamp.fromDate(start)),
+    where('time','<', Timestamp.fromDate(end)),
+    orderBy('time','asc'));
+
+  const snap=await getDocs(q);
+
+  const mEntry=Object.fromEntries(labels.map(l=>[l,0]));
+  const mExit =Object.fromEntries(labels.map(l=>[l,0]));
+  const mUnrg =Object.fromEntries(labels.map(l=>[l,0]));
+  let totalE=0,totalX=0;
+
+  snap.forEach(d=>{
+    const m=d.data(); const ts=m.time?.toDate?.(); if(!ts) return;
+    const k=key(ts); const s=(m.status||'').toLowerCase();
+    if(s==='entry'){ mEntry[k]=(mEntry[k]||0)+1; totalE++; if(m.isRegistered===false){ mUnrg[k]=(mUnrg[k]||0)+1; } }
+    else if(s==='exit'){ mExit[k]=(mExit[k]||0)+1; totalX++; }
+  });
+
+  document.getElementById('cEntry').textContent=totalE;
+  document.getElementById('cExit').textContent =totalX;
+  document.getElementById('cSum').textContent  =totalE+totalX;
+
+  renderChart(labels, labels.map(l=>mEntry[l]||0), labels.map(l=>mExit[l]||0), labels.map(l=>mUnrg[l]||0));
+}
+</script>
+</body>
+</html>

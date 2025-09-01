@@ -1,38 +1,28 @@
+// android/app/build.gradle.kts
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
     id("com.google.gms.google-services")
-    // END: FlutterFire Configuration
-    // ใช้ id ทางการสำหรับ Kotlin Android ใน KTS
     id("org.jetbrains.kotlin.android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.frontend"
-
-    // ค่าพวกนี้ Flutter จะป้อนมาให้ แต่เราสามารถ override ได้ตามต้องการ
     compileSdk = flutter.compileSdkVersion
-
-    // NDK: จาก error ก่อนหน้า cloud_firestore / firebase_core ต้องการ 27.x
     ndkVersion = "27.0.12077973"
 
     compileOptions {
+        // ✅ เปิด desugaring
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
+    kotlinOptions { jvmTarget = JavaVersion.VERSION_11.toString() }
 
     defaultConfig {
         applicationId = "com.example.frontend"
-
-        // ✅ แก้ประเด็นหลัก: บังคับอย่างน้อย 23 (หากค่า Flutter ต่ำกว่า)
+        // ✅ อย่างน้อย 21 สำหรับ desugaring (คุณตั้งไว้ 23 แล้วโอเค)
         minSdk = maxOf(23, flutter.minSdkVersion)
-
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -40,12 +30,21 @@ android {
 
     buildTypes {
         release {
-            // ใช้ debug keystore ชั่วคราวเพื่อให้ `flutter run --release` ทำงานได้
             signingConfig = signingConfigs.getByName("debug")
         }
     }
 }
 
-flutter {
-    source = "../.."
+flutter { source = "../.." }
+
+dependencies {
+    // ✅ ไลบรารี desugaring (เลือกเวอร์ชันเสถียร)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    // หรือจะใช้ใหม่กว่านี้ก็ได้ เช่น 2.1.2:
+    // coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
+
+    // รองรับ Material/AppCompat ที่ธีมใช้อยู่
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.10.0")
 }

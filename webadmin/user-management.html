@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>จัดการสมาชิก</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    body{background:#f8f9fa}
+
+    /* ใช้ .layout แทนการไปแตะ .d-flex ทั้งแอป */
+    .layout{display:flex; min-height:100vh;}
+
+    /* เมนูซ้าย – ความกว้างคงที่เท่าหน้าอื่น ๆ */
+    .sidebar{
+      background:#6f42c1;color:#fff;
+      width:220px;flex:0 0 220px;
+      padding:20px;position:sticky;top:0;height:100vh;
+    }
+    .sidebar a{color:#fff;text-decoration:none;display:block;margin:.45rem 0}
+
+    /* โซนเนื้อหา */
+    .content{flex:1;min-width:0;padding:20px}
+
+    /* ตาราง */
+    .table-responsive{overflow:auto}
+    .table td,.table th{vertical-align:middle}
+
+    /* จำกัดความยาวคอลัมน์ยาว ๆ ให้พอดี */
+    .col-uid{max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .col-email{max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .col-phone{max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .col-plate{max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <!-- ซ้าย -->
+  <div class="sidebar">
+    <h4>เมนู</h4>
+    <a href="dashboard.html">แดชบอร์ด</a>
+    <a href="user-management.html">จัดการสมาชิก</a>
+    <a href="vehicle-management.html">จัดการรถ</a>
+    <a href="entry-exit-log.html">บันทึกเข้า-ออก</a>
+    <a href="statistics.html">สถิติ</a>
+    <a href="error-log.html">บันทึกผิดปกติ</a>
+    <a href="#" id="logout">ออกจากระบบ</a>
+  </div>
+
+  <!-- ขวา -->
+  <div class="content">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3 class="m-0">จัดการสมาชิก</h3>
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">เพิ่มสมาชิก</button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-striped align-middle mb-0">
+        <thead>
+        <tr>
+          <th class="text-nowrap">UID</th>
+          <th class="text-nowrap">ชื่อ</th>
+          <th class="text-nowrap">อีเมล</th>
+          <th class="text-nowrap">เบอร์</th>
+          <th class="text-nowrap">บทบาท</th>
+          <th class="text-nowrap">ทะเบียน</th>
+          <th class="text-nowrap" style="width:110px">แก้ไข</th>
+        </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="7">กำลังโหลด...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal เพิ่ม -->
+<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title">เพิ่มสมาชิก</h5>
+      <button class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <form id="addForm">
+        <div class="mb-2"><label class="form-label">ชื่อ</label><input id="name" class="form-control" required></div>
+        <div class="mb-2"><label class="form-label">อีเมล</label><input id="email" type="email" class="form-control" required></div>
+        <div class="mb-2"><label class="form-label">เบอร์</label><input id="phone" class="form-control"></div>
+        <div class="mb-2">
+          <label class="form-label">บทบาท</label>
+          <select id="role" class="form-select">
+            <option value="student">student</option>
+            <option value="guard">guard</option>
+            <option value="security">security</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">ทะเบียน (ถ้าเป็น student)</label>
+          <input id="plate" class="form-control" placeholder="เช่น 1กณลำปาง5057 หรือ 9729">
+        </div>
+        <button class="btn btn-primary">บันทึก</button>
+      </form>
+    </div>
+  </div></div>
+</div>
+
+<!-- Modal แก้ไข -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title">แก้ไขสมาชิก</h5>
+      <button class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <form id="editForm">
+        <input type="hidden" id="edit_uid">
+        <div class="mb-2"><label class="form-label">ชื่อ</label>
+          <input id="edit_name" class="form-control" required>
+        </div>
+        <div class="mb-2"><label class="form-label">อีเมล</label>
+          <input id="edit_email" type="email" class="form-control" required>
+        </div>
+        <div class="mb-2"><label class="form-label">เบอร์</label>
+          <input id="edit_phone" class="form-control">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">บทบาท</label>
+          <select id="edit_role" class="form-select">
+            <option value="student">student</option>
+            <option value="guard">guard</option>
+            <option value="security">security</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">ทะเบียน (ถ้าเป็น student)</label>
+          <input id="edit_plate" class="form-control">
+        </div>
+        <button class="btn btn-primary" id="saveEditBtn">บันทึกการแก้ไข</button>
+      </form>
+    </div>
+  </div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, getDocs, addDoc, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig={apiKey:"AIzaSyDtebmJ8TIw_fYk6c-wxYn747njdystYLY",authDomain:"motodetec-entry-exit.firebaseapp.com",projectId:"motodetec-entry-exit",storageBucket:"motodetec-entry-exit.firebasestorage.app",messagingSenderId:"196015620727",appId:"1:196015620727:web:f2991268c91e41f2ee3c72",measurementId:"G-XN3QFKMB4J"};
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app);
+const db=getFirestore(app);
+
+function normalizePlate(s){ return (s||'').toString().trim().toUpperCase().replace(/[^0-9A-Zก-๙]/g,''); }
+
+onAuthStateChanged(auth, async (u)=>{ if(!u){location.href="login.html";return;} await loadUsers(); });
+document.getElementById('logout').addEventListener('click',async e=>{e.preventDefault();await signOut(auth);location.href="login.html";});
+
+async function loadUsers(){
+  const tb = document.getElementById("rows");
+  tb.innerHTML = `<tr><td colspan="7">กำลังโหลด...</td></tr>`;
+  const snap = await getDocs(collection(db,"users"));
+  tb.innerHTML = "";
+
+  snap.forEach(d=>{
+    const m = d.data();
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="col-uid"   title="${d.id}">${d.id}</td>
+      <td>${m.name||"-"}</td>
+      <td class="col-email" title="${m.email||''}">${m.email||"-"}</td>
+      <td class="col-phone" title="${m.phone||''}">${m.phone||"-"}</td>
+      <td class="text-capitalize">${m.role||"-"}</td>
+      <td class="col-plate" title="${m.licensePlate||m.plate||m.plateNormalized||''}">
+        ${m.licensePlate||m.plate||m.plateNormalized||"-"}
+      </td>
+      <td><button class="btn btn-sm btn-outline-secondary" data-uid="${d.id}">แก้ไข</button></td>
+    `;
+    tr.querySelector('button[data-uid]').addEventListener('click', ()=> openEditModal(d.id, m));
+    tb.appendChild(tr);
+  });
+}
+
+function openEditModal(uid, m){
+  document.getElementById('edit_uid').value   = uid;
+  document.getElementById('edit_name').value  = m.name || '';
+  document.getElementById('edit_email').value = m.email || '';
+  document.getElementById('edit_phone').value = m.phone || '';
+  document.getElementById('edit_role').value  = (m.role||'student');
+  document.getElementById('edit_plate').value = (m.licensePlate || m.plate || m.plateNormalized || '');
+  new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+document.getElementById('editForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const uid   = document.getElementById('edit_uid').value;
+  const name  = document.getElementById('edit_name').value.trim();
+  const email = document.getElementById('edit_email').value.trim();
+  const phone = document.getElementById('edit_phone').value.trim();
+  const role  = document.getElementById('edit_role').value;
+  const plateRaw = document.getElementById('edit_plate').value.trim();
+  const plateNorm = normalizePlate(plateRaw);
+
+  await setDoc(doc(db,'users', uid), {
+    uid, name, email, phone, role,
+    licensePlate: plateRaw || null,
+    plateNormalized: plateNorm || null,
+    updatedAt: new Date()
+  }, { merge: true });
+
+  if(role==='student' && plateNorm){
+    await setDoc(doc(db,'license_plates', plateNorm), {
+      plate: plateRaw, plateNormalized: plateNorm, ownerUid: uid, registeredAt: new Date()
+    }, { merge: true });
+  }
+
+  bootstrap.Modal.getInstance(document.getElementById('editModal'))?.hide();
+  await loadUsers();
+});
+
+document.getElementById("addForm").addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const name   = document.getElementById("name").value.trim();
+  const email  = document.getElementById("email").value.trim();
+  const phone  = document.getElementById("phone").value.trim();
+  const role   = document.getElementById("role").value;
+  const plate  = document.getElementById("plate").value.trim();
+  const plateN = normalizePlate(plate);
+
+  const ref = await addDoc(collection(db,"users"), {
+    name, email, phone, role,
+    licensePlate: plate || null,
+    plateNormalized: plateN || null,
+    createdAt: new Date(), updatedAt: new Date()
+  });
+
+  if(role==='student' && plateN){
+    await setDoc(doc(db,'license_plates', plateN), {
+      plate, plateNormalized: plateN, ownerUid: ref.id, registeredAt: new Date()
+    }, { merge: true });
+  }
+
+  document.getElementById('addForm').reset();
+  bootstrap.Modal.getInstance(document.getElementById('addModal'))?.hide();
+  await loadUsers();
+});
+</script>
+</body>
+</html>

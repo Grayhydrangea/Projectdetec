@@ -1,7 +1,13 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart'; // ✅ ไฟล์ที่ FlutterFire CLI สร้างให้
+import 'firebase_options.dart'; // ✅ ของ FlutterFire CLI
+
+// Firebase Messaging (สำหรับ background handler)
+import 'package:firebase_messaging/firebase_messaging.dart';
+
+// บริการแจ้งเตือน/บันทึก token และ heads‑up ตอน foreground
+import 'services/push_service.dart';
 
 // === pages ===
 import 'sign_in_page.dart';       // class SignInPage (const)
@@ -14,12 +20,24 @@ import 'setting_page.dart';       // class SettingsPage (const)
 import 'edit_profile_page.dart';  // class EditProfilePage (const)
 import 'notifications.dart';      // class NotificationsPage (const)
 
+/// ต้องเป็น top-level function สำหรับ background push
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // ถ้าต้องทำงานเพิ่ม ให้ init Firebase ที่นี่ (ส่วนใหญ่ Android จะโชว์ system notif ให้เอง)
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // ✅ ใช้ options จาก firebase_options.dart
+
+  // ✅ init Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // ✅ ลงทะเบียน background handler ของ FCM
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   runApp(const MyApp());
 }
 
@@ -66,7 +84,12 @@ class MyApp extends StatelessWidget {
           case '/home': {
             final uid = _extractUid(args);
             if (uid != null) {
-              return MaterialPageRoute(builder: (_) => HomePage(uid: uid));
+              // ⬇️ เรียก PushService.init(uid) ทันทีที่เข้าบ้าน
+              return MaterialPageRoute(builder: (_) {
+                // ไม่เป็นอันตรายหากถูกเรียกซ้ำ (ภายใน service กันไว้แล้ว)
+                PushService.instance.init(uid);
+                return HomePage(uid: uid);
+              });
             }
             // ถ้าไม่มี uid ให้ย้อนกลับไปหน้า login
             return MaterialPageRoute(builder: (_) => const SignInPage());
